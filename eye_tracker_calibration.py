@@ -90,7 +90,7 @@ try:
         if len(pixel_locations) < 5:
             frames = pipeline.wait_for_frames()
             if np.mean(color_image_to_display) == 0:
-                # Align the depth frame to color frame
+                 # Align the depth frame to color frame
                 aligned_frames = align.process(frames)
                 aligned_depth_frame = aligned_frames.get_depth_frame()  # aligned_depth_frame is a 640x480 depth image
                 color_frame = aligned_frames.get_color_frame()
@@ -124,25 +124,28 @@ try:
 
             # After all points are acquired in the camera frame, loop through each point and wait for a duration of
             # time to average the gaze vector
+            eye_gaze_vector = []
             for i, pixel_location in enumerate(pixel_locations):
                 winsound.Beep(frequency, duration)
                 time.sleep(2) # sleeping until the eye focuses
                 x, y = pixel_location
                 color_image_to_display = cv2.circle(color_image_to_display, (x, y), 30, (255, 0, 255), 1)
                 cv2.imshow('Eye Tracker Calibration', color_image_to_display)
-                eye_gaze_vector = []
+
                 sample_counter = 0
                 while sample_counter < 2000:
                     topic, payload = subscriber.recv_multipart()
                     message = msgpack.loads(payload)
+                    normalized_gaze = message[b'norm_pos']
                     gaze_point_3d = message[b'gaze_point_3d']
                     confidence = message[b'confidence']
-                    if confidence > 0.9:
-                        eye_gaze_vector.append(gaze_point_3d)
+                    if confidence > 0.0:
+                        # eye_gaze_vector.append(gaze_point_3d)
+                        eye_gaze_vector.append(normalized_gaze)
                         sample_counter += 1
-                eye_gaze_vector = np.array(eye_gaze_vector)
-                eye_gaze_vector_mean = np.mean(eye_gaze_vector, axis = 0)
-                mean_gaze_vectors.append(eye_gaze_vector_mean)
+            eye_gaze_vector = np.array(eye_gaze_vector)
+            #eye_gaze_vector_mean = np.mean(eye_gaze_vector, axis = 0)
+            #mean_gaze_vectors.append(eye_gaze_vector_mean)
             winsound.Beep(frequency, duration)
             time.sleep(1)
             winsound.Beep(frequency, duration)
@@ -157,12 +160,16 @@ finally:
     pipeline.stop()
 
 # mean_gaze_vectors -> Array containing the 5 points for calibration in pupil world frame
-mean_gaze_vectors = np.array(mean_gaze_vectors)
-world_locations = np.array(world_locations)
+# mean_gaze_vectors = np.array(mean_gaze_vectors)
+# world_locations = np.array(world_locations)
+#
+# # gaze_points = (mean_gaze_vectors / mean_gaze_vectors[:, -1].reshape(-1, 1))[:, :2]
+# gaze_points = mean_gaze_vectors
+# np.savetxt('world_locations.txt', world_locations)
+# np.savetxt('gaze_points.txt', gaze_points)
+# np.savetxt('mean_gaze_vectors.txt', mean_gaze_vectors)
 
-gaze_points = (mean_gaze_vectors / mean_gaze_vectors[:, -1].reshape(-1, 1))[:, :2]
-
-plt.scatter(gaze_points[:, 0], gaze_points[:,1]); plt.show(block=False)
+plt.scatter(eye_gaze_vector[:, 0], eye_gaze_vector[:,1]); plt.show(block=False)
 import code; code.interact(local=dict(globals(), **locals()))
 #
 # while counter < 5000:
