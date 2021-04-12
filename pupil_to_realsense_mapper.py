@@ -5,17 +5,30 @@ import cv2
 import matplotlib.pyplot as plt
 import pyrealsense2 as rs
 from PIL import Image
+import threading, queue
 
-def fetch_realsense_frame(pipeline, align):
+def fetch_realsense_frame(pipeline, align, aligned_depth_frame, color_frame):
     frames = pipeline.wait_for_frames()
     aligned_frames = align.process(frames)
-    aligned_depth_frame = aligned_frames.get_depth_frame()
-    color_frame = aligned_frames.get_color_frame()
-    intrinsics = color_frame.profile.as_video_stream_profile().intrinsics
+    aligned_depth_frame_object = aligned_frames.get_depth_frame()
+    color_frame[0] = aligned_frames.get_color_frame()
     # Hole filling to get a clean depth image
     hole_filling = rs.hole_filling_filter()
-    aligned_depth_frame = hole_filling.process(aligned_depth_frame)
-    return [aligned_depth_frame, color_frame, intrinsics]
+    aligned_depth_frame[0] = hole_filling.process(aligned_depth_frame_object)
+
+def fetch_gaze_vector(subscriber, avg_gaze, n):
+    while True:
+        topic, payload = subscriber.recv_multipart()
+        message = msgpack.loads(payload)
+        gaze_point_3d = message[b'gaze_point_3d']
+        avg_gaze[:] = gaze_point_3d
+    # gaze_point_3d = np.array(gaze_point_3d)
+    # prev_mean = np.array(avg_gaze)
+    # if n[0] == 0:
+    #     avg_gaze[:] = list(gaze_point_3d)
+    # else:
+    #     avg_gaze[:] = list(prev_mean + (gaze_point_3d - prev_mean) / n[0])
+    # n[0] += 1
 
 ctx = zmq.Context()
 # The REQ talks to Pupil remote and receives the session unique IPC SUB PORT
@@ -64,36 +77,44 @@ M_t = np.array([[ 0.99642809, -0.01998785, -0.08204601, -0.022062  ],
 invertible_M_t = np.concatenate([M_t, np.array([0,0,0,1]).reshape(1,4)], axis=0)
 M_t_inverse = np.linalg.inv(invertible_M_t)
 
+realsense_intrinsics_matrix = np.array([[609.87304688,   0.        , 332.6171875 ],
+                                        [  0.        , 608.84387207, 248.34165955],
+                                        [  0.        ,   0.        ,   1.        ]])
+
 frame_counter = 0
+avg_gaze = [0,0,0]
+n = [0]
+aligned_depth_frame = [None]
+color_frame = [None]
+
+# Thread runs infinetly
+t1 = threading.Thread(target=fetch_gaze_vector, args=(subscriber, avg_gaze, n))
+t1.start()
+
 try:
     while True:
-        # Decoding the messages from the Pupil eye tracker
-        topic, payload = subscriber.recv_multipart()
-        message = msgpack.loads(payload)
-        normalized_gaze = message[b'norm_pos']
-        gaze_point_3d = message[b'gaze_point_3d'] # [x, y, z]
-        confidence = message[b'confidence']
+        # Decoding the messages from the Pupil eye tracker - THREAD 1
+        # [avg_gaze, n] = fetch_gaze_vector(subscriber, avg_gaze, n)
 
-        if frame_counter == 0:
-            [aligned_depth_frame, color_frame, intrinsics] = fetch_realsense_frame(pipeline, align)
-        if not aligned_depth_frame or not color_frame:
+        # Getting an RGB and Depth frame from RealSense Camera - THREAD 2
+        t2 = threading.Thread(target=fetch_realsense_frame, args=(pipeline, align, aligned_depth_frame, color_frame))
+        t2.start()
+        t2.join() # Wait until the frame is capture from the RealSense camera before moving on
+        n[0] = 0
+        if not aligned_depth_frame[0] or not color_frame[0]:
             continue
         frame_counter += 1
-        color_image = np.asanyarray(color_frame.get_data())
+        color_image = np.asanyarray(color_frame[0].get_data())
         realsense_world_view = cv2.cvtColor(color_image, cv2.COLOR_RGB2BGR)
 
-        gaze_point_3d.append(1)
-        gi = np.array(gaze_point_3d).reshape(4, 1)
+        gaze_vector = list(avg_gaze)
+        gaze_vector.append(1)
+        gi = np.array(gaze_vector).reshape(4, 1)
         gaze_points_realsense_world = np.dot(M_t_inverse, gi) # 3D points. Need to project to the image plance using
                                                               # realsense intrinsincs
-        realsense_intrinsics_matrix = np.array([[intrinsics.fx, 0, intrinsics.ppx],
-                                      [0, intrinsics.fy, intrinsics.ppy],
-                                      [0, 0, 1]])
-
         gaze_points_realsense_image = np.dot(realsense_intrinsics_matrix, gaze_points_realsense_world[:3])
         gaze_points_realsense_image = gaze_points_realsense_image / gaze_points_realsense_image[-1]
         gaze_x_realsense, gaze_y_realsense, _ = gaze_points_realsense_image.squeeze().astype('uint16')
-        print(gaze_x_realsense, gaze_y_realsense)
         realsense_world_view = cv2.circle(realsense_world_view, (gaze_x_realsense, gaze_y_realsense), 20, (255, 0, 255), 3)
         realsense_world_view = cv2.circle(realsense_world_view, (gaze_x_realsense, gaze_y_realsense), 2, (255, 0, 255), 2)
         cv2.imshow('Eye Tracker Calibration', realsense_world_view)
