@@ -4,8 +4,8 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import pyrealsense2 as rs
-from PIL import Image
-
+import time
+from perspective_n_point import solve_pnp
 
 mouseX, mouseY = [0, 0]
 
@@ -92,9 +92,6 @@ def get_realsense_frame():
                 aligned_depth_frame = aligned_frames.get_depth_frame()  # aligned_depth_frame is a 640x480 depth image
                 color_frame = aligned_frames.get_color_frame()
                 intrinsics = color_frame.profile.as_video_stream_profile().intrinsics
-                intrinsics_matrix = np.array([[intrinsics.fx, 0, intrinsics.ppx],
-                                              [0, intrinsics.fy, intrinsics.ppy],
-                                              [0, 0, 1]])
                 # Hole filling to get a clean depth image
                 hole_filling = rs.hole_filling_filter()
                 aligned_depth_frame = hole_filling.process(aligned_depth_frame)
@@ -115,7 +112,6 @@ def plot_frames(frame1, frame2):
     axs[1].set_title('Frame 2')
     plt.show(block=False)
 
-
 # Getting the world frame from Pupil eye tracker
 context = zmq.Context()
 # open a req port to talk to pupil
@@ -135,23 +131,9 @@ sub.connect("tcp://{}:{}".format(addr, sub_port))
 # recv just pupil/gaze/notifications
 sub.setsockopt_string(zmq.SUBSCRIBE, 'frame.')
 
+
 pupil_world_view = get_world_frame_from_pupil()
 realsense_world_view, realsense_intrinsics, aligned_depth_frame, pipeline = get_realsense_frame()
-
-
-
-im_pupil = Image.fromarray(pupil_world_view)
-im_pupil.save("im_pupil.jpeg")
-
-im_realsense = Image.fromarray(realsense_world_view)
-im_realsense.save("im_realsense.jpeg")
-
-#
-# pupil_world_view = Image.open("im_pupil.jpeg")
-# realsense_world_view = Image.open("im_realsense.jpeg")
-# pupil_world_view = np.asarray(pupil_world_view)
-# realsense_world_view = np.asarray(realsense_world_view)
-
 
 cv2.namedWindow('Eye Tracker Calibration', cv2.WINDOW_AUTOSIZE)
 cv2.setMouseCallback('Eye Tracker Calibration', onMouse)
@@ -159,6 +141,7 @@ font = cv2.FONT_HERSHEY_SIMPLEX
 prev_mouse_location = [0, 0]
 num_points = 5
 labelled_images = []
+
 
 images_to_annotate = [pupil_world_view, realsense_world_view]
 image_labels = ['Pupil Frame', 'RealSense Frame']
@@ -177,7 +160,10 @@ for i, image in enumerate(images_to_annotate):
             image = cv2.circle(image, (x, y), 2, (255, 0, 0), 2)
             cv2.putText(image, str(j), (x + 4, y), font, 0.5, (0, 0, 255), thickness=2)
         cv2.imshow('Eye Tracker Calibration', image)
-
+        cv2.putText(image, image_labels[i], (20,20), font, 0.5, (0, 0, 255), thickness=1)
+        instructions = "INSTRUCTIONS: Please select %d points of correspondence in the %s, while ensuring the order of " \
+                       "the points" %(num_points, image_labels[i])
+        cv2.putText(image, instructions, (20, 40), font, 0.5, (0, 0, 255), thickness=1)
         key = cv2.waitKey(1)
         if key & 0xFF == ord('q') or key == 27:
             cv2.destroyAllWindows()
@@ -186,12 +172,44 @@ for i, image in enumerate(images_to_annotate):
 
     labelled_images.append(image)
 
+pupil_image_size = [720, 1280] #[height, width]
+realsense_image_size = [480, 640] #[height, width]
+
+points[0][:, 1] = pupil_image_size[0] - points[0][:, 1]
+points[1][:, 1] = realsense_image_size[0] - points[1][:, 1]
+
 pupil_points = points[0]
 realsense_image_points = points[1]
 realsense_world_points = np.zeros((num_points, 3))
 for k, image_frame_points in enumerate(realsense_image_points):
     realsense_world_points[k] = de_project_point(realsense_intrinsics, aligned_depth_frame, image_frame_points)
 
-np.savetxt('world_locations.txt', realsense_world_points)
-np.savetxt('gaze_points.txt', pupil_points)
+time_stamp = time.strftime("%Y%m%d-%H%M%S")
+np.savetxt(time_stamp + '_world_locations.txt', realsense_world_points)
+np.savetxt(time_stamp + '_gaze_points.txt', pupil_points)
+
+# Getting Homogeneous Transformation matrix
+
+# Defining camera_matrix as an identity matrix of size 3x3 - This is the camera intrinsics of the Pupil world camera
+# Matrix was obtained from Pupil Github repo
+# https://github.com/pupil-labs/pupil/blob/master/pupil_src/shared_modules/camera_models.py
+pupil_camera_intrinsics = np.array([[794.3311439869655, 0.0, 633.0104437728625],
+                                    [0.0, 793.5290139393004, 397.36927353414865],
+                                    [0.0, 0.0, 1.0]])
+
+# Defining zero distortion coefficients of Pupil world camera
+pupil_dist_coef = np.array([ -0.3758628065070806,
+                             0.1643326166951343,
+                             0.00012182540692089567,
+                             0.00013422608638039466,
+                             0.03343691733865076,
+                             0.08235235770849726,
+                             -0.08225804883227375,
+                             0.14463365333602152])
+object_points = np.array(realsense_world_points, dtype=np.float32)
+image_points = np.float32(pupil_points)
+Mt = solve_pnp(object_points, image_points, pupil_camera_intrinsics, pupil_dist_coef, plot=True)
+np.savetxt(time_stamp + '_Mt.txt', Mt.squeeze())
 pipeline.stop()
+
+

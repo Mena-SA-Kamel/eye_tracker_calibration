@@ -1,3 +1,4 @@
+### DEPRECATED
 # 'R'  # start recording with auto generated session name
 # 'R rec_name'  # start recording named "rec_name"
 # 'r'  # stop recording

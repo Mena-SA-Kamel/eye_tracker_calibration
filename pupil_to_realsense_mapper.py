@@ -71,9 +71,10 @@ for i in list(range(20)):
     frames = pipeline.wait_for_frames()
 # cv2.namedWindow('Eye Tracker Calibration', cv2.WINDOW_AUTOSIZE)
 
-M_t = np.array([[ 0.99642809, -0.01998785, -0.08204601, -0.022062  ],
-                [ 0.01818824,  0.9995786 , -0.02262325, -0.02734249],
-                [ 0.08246363,  0.02105017,  0.99637174,  0.00180171]])
+M_t = np.array([[  0.99866882,  0.01168762,  0.05023925, -0.13939386],
+ [-0.01221465,  0.99987341,  0.01019624, -0.00047303],
+ [-0.05011372, -0.01079632,  0.99868516, -0.0069492]])
+
 invertible_M_t = np.concatenate([M_t, np.array([0,0,0,1]).reshape(1,4)], axis=0)
 M_t_inverse = np.linalg.inv(invertible_M_t)
 
@@ -110,10 +111,12 @@ try:
         gaze_vector = list(avg_gaze)
         gaze_vector.append(1)
         gi = np.array(gaze_vector).reshape(4, 1)
-        gaze_points_realsense_world = np.dot(M_t_inverse, gi) # 3D points. Need to project to the image plance using
+        gaze_points_realsense_world = np.dot(invertible_M_t, gi) # 3D points. Need to project to the image plane using
                                                               # realsense intrinsincs
         gaze_points_realsense_image = np.dot(realsense_intrinsics_matrix, gaze_points_realsense_world[:3])
         gaze_points_realsense_image = gaze_points_realsense_image / gaze_points_realsense_image[-1]
+        # here x and y values are relative to the bottom left corner, needs to be relative to the top left corner for open cv
+
         gaze_x_realsense, gaze_y_realsense, _ = gaze_points_realsense_image.squeeze().astype('uint16')
         realsense_world_view = cv2.circle(realsense_world_view, (gaze_x_realsense, gaze_y_realsense), 20, (255, 0, 255), 3)
         realsense_world_view = cv2.circle(realsense_world_view, (gaze_x_realsense, gaze_y_realsense), 2, (255, 0, 255), 2)
