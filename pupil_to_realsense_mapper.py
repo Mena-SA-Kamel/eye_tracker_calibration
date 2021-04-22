@@ -71,9 +71,9 @@ for i in list(range(20)):
     frames = pipeline.wait_for_frames()
 # cv2.namedWindow('Eye Tracker Calibration', cv2.WINDOW_AUTOSIZE)
 
-M_t = np.array([[  0.99866882,  0.01168762,  0.05023925, -0.13939386],
- [-0.01221465,  0.99987341,  0.01019624, -0.00047303],
- [-0.05011372, -0.01079632,  0.99868516, -0.0069492]])
+M_t = np.array([[0.98323309, -0.03063463,  0.17976155, -0.05710686],
+ [ 0.03361795,  0.9993426,  -0.01357236, -0.02003963],
+ [-0.17922759,  0.01938801,  0.98361658,  0.01666406]])
 
 invertible_M_t = np.concatenate([M_t, np.array([0,0,0,1]).reshape(1,4)], axis=0)
 M_t_inverse = np.linalg.inv(invertible_M_t)

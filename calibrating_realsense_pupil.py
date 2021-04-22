@@ -175,8 +175,8 @@ for i, image in enumerate(images_to_annotate):
 pupil_image_size = [720, 1280] #[height, width]
 realsense_image_size = [480, 640] #[height, width]
 
-points[0][:, 1] = pupil_image_size[0] - points[0][:, 1]
-points[1][:, 1] = realsense_image_size[0] - points[1][:, 1]
+# points[0][:, 1] = pupil_image_size[0] - points[0][:, 1]
+# points[1][:, 1] = realsense_image_size[0] - points[1][:, 1]
 
 pupil_points = points[0]
 realsense_image_points = points[1]
