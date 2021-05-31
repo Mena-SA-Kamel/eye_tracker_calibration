@@ -212,4 +212,31 @@ Mt = solve_pnp(object_points, image_points, pupil_camera_intrinsics, pupil_dist_
 np.savetxt(time_stamp + '_Mt.txt', Mt.squeeze())
 pipeline.stop()
 
+realsense_intrinsics_matrix = np.array([[609.87304688, 0., 332.6171875],
+                                            [0., 608.84387207, 248.34165955],
+                                            [0., 0., 1.]])
+
+
+pupil_camera_intrinsics_inverse = np.linalg.inv(pupil_camera_intrinsics)
+num_points = image_points.shape[0]
+pupil_image_points = np.concatenate([image_points, np.ones((num_points, 1))], axis=-1).T
+invertible_Mt_hat = np.append(Mt, np.array([0,0,0,1])).reshape(4, 4)
+# Taking the inverse of the Mt_hat
+inverse_Mt_hat = np.linalg.inv(invertible_Mt_hat)
+
+tracker_world_points = np.dot(pupil_camera_intrinsics_inverse, pupil_image_points)
+tracker_world_points_hat = np.append(tracker_world_points, np.ones((1, num_points)), axis=0)
+realsense_world_points = np.dot(inverse_Mt_hat, tracker_world_points_hat)
+realsense_image_points = np.dot(realsense_intrinsics_matrix, realsense_world_points[:3,])
+realsense_image_points = realsense_image_points / realsense_image_points[-1,]
+
+
+plt.figure()
+plt.imshow(realsense_world_view)
+plt.scatter(realsense_image_points[0], realsense_image_points[1])
+plt.show()
+import code; code.interact(local=dict(globals(), **locals()))
+
+
+
 
